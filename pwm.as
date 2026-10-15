@@ -1,4 +1,3 @@
-SETTLE_COUNT EQU 100        ; DJNZ Rn = 3 cycles = 0.75 us at 16 MHz, so about 77 us per delay
 P0DIR   EQU 94h
 
     ORG   0d2eh
@@ -6,10 +5,10 @@ P0DIR   EQU 94h
     ANL P0DIR, #0C7h
     SETB  P0.0  
 MAINLOOP:    
+;; CLR P1.1???
     LCALL 03e1h ; read controller data
     XRL   49h,#20h ; flip the vibrate button
-    
-SEND_PACKET_32B:
+
     SETB  P1.1              ;  2 cycles ; high marker: 23 cycles
     MUL   AB                ;  5 cycle delay
     MUL   AB                ;  5 cycle delay
@@ -39,7 +38,7 @@ BIT_LOOP:
     SETB  P1.1              ;  2 cycles ; Line goes HIGH for 10 cycles if bit=1; 5 cycles otherwise
     JNC   BIT_LOW_PHASE     ;  3 cycles ; jump on zero
 
-    NOP                     ;  Delay (1 cycle) for Bit 1
+    NOP                     ;  Delay (1 cycle) for Bit=1
     NOP                     ;  Delay (1 cycle)
     NOP                     ;  Delay (1 cycle)
     NOP                     ;  Delay (1 cycle)
