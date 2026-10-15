@@ -1,9 +1,13 @@
+SETTLE_COUNT EQU 100        ; DJNZ Rn = 3 cycles = 0.75 us at 16 MHz, so about 77 us per delay
+P0DIR   EQU 94h
+
     ORG   0d2eh
     LCALL 0a93h ; setup
+    ANL P0DIR, #0C7h
+    SETB  P0.0  
 MAINLOOP:    
     LCALL 03e1h ; read controller data
-;    MOV   A,#55h
-;    MOV   49h, A
+    XRL   49h,#20h ; flip the vibrate button
     
 SEND_PACKET_32B:
     SETB  P1.1              ;  2 cycles ; high marker: 23 cycles
@@ -54,4 +58,5 @@ CHECK_BYTE:
     CJNE  R2, #01H, LOAD_BYTE ;  If R2 > 1, fetch next payload byte
     MOV   A, R3               ;  If R2 == 1, load checksum into ACC for 19th pass
     SJMP  SEND_ACC            ;  Transmit checksum byte via SEND_ACC
+
     END
