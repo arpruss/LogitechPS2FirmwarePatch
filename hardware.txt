@@ -1,4 +1,5 @@
 Clock: 16mhz
+machine cycle 0.25 us
 
 P1.0: read digital button row (mask 0x20 at payload[0x11]?)
 P1.1: LED, active low
