@@ -4,10 +4,29 @@ P0DIR   EQU 94h
     LCALL 0a93h ; setup
     ANL P0DIR, #0C7h
     SETB  P0.0  
+    
+LO_VAL  EQU 78h             ; stock default
+HI_VAL  EQU 0C8h            ; stock default
+
+        MOV   R2, #0
+INIT_LP:
+        MOV   A, R2
+        ADD   A, #76h       ; low-limit table: 76h..81h
+        MOV   R0, A
+        MOV   @R0, #LO_VAL
+        MOV   A, R2
+        ADD   A, #82h       ; high-limit table: 82h..8Dh
+        MOV   R0, A
+        MOV   @R0, #HI_VAL
+        INC   R2
+        CJNE  R2, #12, INIT_LP    
+    
 MAINLOOP:    
 ;; CLR P1.1???
     LCALL 03e1h ; read controller data
     LCALL READ_TRIGGERS ; manually read problematic triggers
+        ;; comment out if your L2 trigger is fine
+                    
     XRL   49h,#20h ; flip the vibrate button
 
     SETB  P1.1              ;  2 cycles ; high marker: 23 cycles
@@ -85,11 +104,11 @@ READ_TRIGGERS:
     MOV   A, ADC_DATAH
     MOV   47h, A            ; payload byte 15
 
-    MOV   R4, #5            ; R2: AIN5, column P0.4 row 1
-    LCALL ADC_CONVERT       ; dummy
-    LCALL ADC_CONVERT
-    MOV   A, ADC_DATAH
-    MOV   48h, A            ; payload byte 16
+;    MOV   R4, #5            ; R2: AIN5, column P0.4 row 1
+;    LCALL ADC_CONVERT       ; dummy
+;    LCALL ADC_CONVERT
+;    MOV   A, ADC_DATAH
+;    MOV   48h, A            ; payload byte 16
 
     ANL   P0, #0EFh         ; column low
     ANL   P0DIR, #0BFh      ; restore: P0.6 output, low, ADC off
