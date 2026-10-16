@@ -7,6 +7,7 @@ P0DIR   EQU 94h
 MAINLOOP:    
 ;; CLR P1.1???
     LCALL 03e1h ; read controller data
+    LCALL READ_L2
     XRL   49h,#20h ; flip the vibrate button
 
     SETB  P1.1              ;  2 cycles ; high marker: 23 cycles
@@ -57,5 +58,62 @@ CHECK_BYTE:
     CJNE  R2, #01H, LOAD_BYTE ;  If R2 > 1, fetch next payload byte
     MOV   A, R3               ;  If R2 == 1, load checksum into ACC for 19th pass
     SJMP  SEND_ACC            ;  Transmit checksum byte via SEND_ACC
+
+ADCCON      EQU 0A1h
+ADC_DATAH   EQU 0A2h
+ADC_DATAL   EQU 0A3h
+ADC_STATIC  EQU 0A4h
+EXIF        EQU 91h
+;P0DIR       EQU 94h
+
+L2_CHANNEL  EQU 7           ; AIN7 = row 3 of the column driven by P0.4
+SETTLE_CNT  EQU 100         ; about 77 us at 16 MHz
+
+; in the main loop:
+;     LCALL 03e1h
+;     LCALL READ_L2
+
+;; L2 was not sensitive enough, so read it manually
+READ_L2:
+    MOV   ADC_STATIC, #02Ah ; 10-bit, ADC clock = CPU/8 (as the matrix scan uses)
+    MOV   ADCCON, #0A0h     ; ADC on, internal 1.22 V reference
+    ORL   P0DIR, #040h      ; P0.6 input, as during the matrix scan
+    LCALL SETTLE            ; ADC power-up
+    ORL   P0, #010h         ; column P0.4 high
+    LCALL SETTLE
+    MOV   R4, #L2_CHANNEL
+    LCALL ADC_CONVERT       ; dummy conversion: lets the mux settle
+    LCALL ADC_CONVERT       ; real conversion
+    MOV   A, ADC_DATAH      ; top 8 bits of the 10-bit result
+    MOV   47h, A            ; payload byte 15
+    ANL   P0, #0EFh         ; column low
+    ANL   P0DIR, #0BFh      ; restore: P0.6 output, low, ADC off
+    CLR   P0.6
+    MOV   ADC_STATIC, #029h
+    MOV   ADCCON, #000h
+    RET
+
+ADC_CONVERT:                ; R4 = channel
+    ANL   EXIF, #0EFh       ; clear any stale end-of-conversion flag
+    MOV   A, R4
+    ORL   A, #0A0h
+    MOV   ADCCON, A         ; CSTARTN = 1
+    MOV   A, R4
+    ORL   A, #020h
+    MOV   ADCCON, A         ; CSTARTN = 0
+    MOV   A, R4
+    ORL   A, #0A0h
+    MOV   ADCCON, A         ; CSTARTN = 1: rising edge starts the conversion
+CONV_WAIT:
+    MOV   A, EXIF
+    JNB   ACC.4, CONV_WAIT  ; EXIF.4 = end of conversion
+    ANL   EXIF, #0EFh
+    RET
+
+SETTLE:
+    MOV   R2, #SETTLE_CNT
+SETTLE_LP:
+    DJNZ  R2, SETTLE_LP
+    RET
 
     END
