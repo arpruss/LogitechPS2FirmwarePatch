@@ -9,7 +9,6 @@ P0.2:
 P0.3-5: select matrix column
 
 P0.1: little vibration motor, independent of PWM
-P0.2: big vibration motor, uses PWM
 P0.7: vibration motor PWM
 
 When P0.4 set, P1.0=vibration button, P1.2=0

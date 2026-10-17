@@ -3,11 +3,17 @@ ADCCON      EQU 0A1h
 ADC_DATAH   EQU 0A2h
 ADC_STATIC  EQU 0A4h
 PWMCON      EQU 0a9h
+PWMDUTY     EQU 0aah
+CKCON       EQU 08eh
 EXIF        EQU 91h
 P0DIR       EQU 94h
 P0ALT       EQU 95h
 P1DIR       EQU 96h
 SETTLE_CNT  EQU 100          ; about 77 us at 16 MHz
+RECEIVE_BIT_TIME EQU 30
+RECEIVE_TIMEOUT  EQU 40
+RUMBLE_TIMEOUT_COUNT EQU 5
+RUMBLE_TIMEOUT       EQU 010h 
 
     ORG   0h
     
@@ -21,13 +27,15 @@ SETTLE_CNT  EQU 100          ; about 77 us at 16 MHz
     
     MOV   PWMCON,#0c1h
     ORL   P0ALT,#080h
+    MOV   PWMDUTY,#0
     SETB  P0.7    
+    
+    MOV   RUMBLE_TIMEOUT, #RUMBLE_TIMEOUT_COUNT
 
 ; --- main loop ---
 MAINLOOP:
     LCALL READ_ALL           ; replaces LCALL 03e1h and READ_BTNS/READ_TRIGGERS
-
-;    XRL   49h,#20h ; flip the vibrate button
+    MOV   P1DIR,#0fdh       ; activate LED/comm output
 
     SETB  P1.1              ;  2 cycles ; high marker: 23 cycles
     MUL   AB                ;  5 cycle delay
@@ -70,14 +78,75 @@ BIT_LOW_PHASE:
     DJNZ  R1, BIT_LOOP      ;  3 cycles ; Loop 8 bits
 
     ; --- Inter-Byte Routing ---
-    DJNZ  R2, CHECK_BYTE    ;  Decrement byte count (19 -> 18 ... -> 0)
-    SJMP  MAINLOOP          ;  Exit when R2 reaches 0 (after 19th byte)
+    DJNZ  R2, CHECK_BYTE    ;  3 cycles Decrement byte count (19 -> 18 ... -> 0)
+    SJMP  RECEIVE          ;  Exit when R2 reaches 0 (after 19th byte)
+;    SJMP  MAINLOOP
 
 CHECK_BYTE:
     CJNE  R2, #01H, LOAD_BYTE ;  If R2 > 1, fetch next payload byte
     MOV   A, R3               ;  If R2 == 1, load checksum into ACC for 19th pass
     SJMP  SEND_ACC            ;  Transmit checksum byte via SEND_ACC
+    
+RECEIVE:
+    MOV   P1DIR,#0ffh       ; put P1.1 in receive mode
+    ;; receive timer
+    
+    CLR  TR1
+    ORL  CKCON, #10h      ; T1M=1: Timer 1 ticks every instruction cycle (verify bit in 10.8)
+    MOV  TMOD, #20h       ; Timer 1, mode 2
+    MOV  TH1, #-RECEIVE_BIT_TIME
+    MOV  TL1, #-(RECEIVE_BIT_TIME-15) ; account for detection delay
+    MOV  R4, #0           ; little motor
+    
+    MOV  R1, #RECEIVE_TIMEOUT
+WAIT_RECEIVE:    
+    JB   P1.1, START_RECEIVE      ; 4 cycles
+    DJNZ R1, WAIT_RECEIVE         ; 3 cycles
+    SJMP NO_RECEIVE        ; reception timed out
 
+START_RECEIVE:
+    CLR  TF1
+    SETB TR1
+
+WAIT_BIT_0:   
+    JNB  TF1, WAIT_BIT_0
+    CLR  TF1
+    
+    JNB  P1.1, NO_LITTLE
+    INC  R4
+NO_LITTLE: 
+
+    MOV  R2, #8
+RECEIVE_BYTE_LOOP:
+WAIT_BIT:
+    JNB  TF1, WAIT_BIT
+    CLR  TF1
+
+    MOV  C, P1.1
+    RLC  A
+NO_BIT:    
+    DJNZ R2, RECEIVE_BYTE_LOOP
+    
+    MOV  PWMDUTY, A
+
+    MOV  A, R4
+    RRC  A
+    MOV  P0.1, C ; set small motor
+    
+    MOV  RUMBLE_TIMEOUT, #RUMBLE_TIMEOUT_COUNT
+    LJMP MAINLOOP
+    
+NO_RECEIVE:
+    MOV  R1, RUMBLE_TIMEOUT
+    DJNZ R1, UPDATE_RUMBLE_TIMEOUT    
+CLEAR_RUMBLE:    
+    MOV  PWMDUTY, #0
+    CLR  P0.1
+    LJMP MAINLOOP
+UPDATE_RUMBLE_TIMEOUT:
+    MOV  RUMBLE_TIMEOUT, R1
+    LJMP MAINLOOP
+    
 ; --- subroutines, after your last SJMP and before END ---
 READ_ALL:
     ANL   P0DIR, #0C7h       ; P0.3-P0.5 outputs (column drivers)
