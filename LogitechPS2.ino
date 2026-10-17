@@ -4,13 +4,7 @@
 #include <USBXBox360.h>
 
 //#define DEBUG
-#define BENCHMARK
-
-// one: 10 nrf cycles
-// zero: 5 nrf cycles
-// marker: 23 nrf cycles
-// low after marker: 17 nrf cycles
-
+//#define BENCHMARK // I measured about 125 Hz
 
 #define MIN_LITTLE_RUMBLE 64
 #define BIG_RUMBLE_OUT_MIN 170
