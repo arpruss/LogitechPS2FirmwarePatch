@@ -1,11 +1,11 @@
 #include <libmaple/iwdg.h>
 #include "dwt.h"
-#include <SegaController.h>
-#include <USBXBox360.h>
+#include <USBComposite.h>
 
 //#define DEBUG
 //#define BENCHMARK // I measured about 125 Hz
 
+//#define USE_LED
 #define MIN_LITTLE_RUMBLE 64
 #define BIG_RUMBLE_OUT_MIN 170
 
@@ -25,6 +25,35 @@ const uint32_t watchdogSeconds = 3;
 int benchmarkState = 0;
 #endif
 
+#define PRESSURE_SENSITIVE_COUNT 12
+
+const uint8_t pressureSensitiveToXBox[PRESSURE_SENSITIVE_COUNT] =
+{
+  XBOX_DRIGHT, XBOX_DLEFT, XBOX_DUP, XBOX_DDOWN,
+  XBOX_Y, XBOX_X, XBOX_B, XBOX_A,
+  XBOX_LSHOULDER, XBOX_RSHOULDER,
+  0,0
+};
+
+union pressure_u {
+  struct pressureButtons_s {
+    uint8_t dpad_right;
+    uint8_t dpad_left;
+    uint8_t dpad_up;
+    uint8_t dpad_down;
+    
+    uint8_t tri;
+    uint8_t o;
+    uint8_t x;
+    uint8_t sqr;
+    
+    uint8_t l1;
+    uint8_t r1;
+    uint8_t l2;
+    uint8_t r2;
+  } buttons;
+  uint8_t values[PRESSURE_SENSITIVE_COUNT];
+};
 
 struct inputData {
   uint8_t unused;
@@ -32,21 +61,17 @@ struct inputData {
   uint8_t ry;
   uint8_t lx;
   uint8_t ly;
-  uint8_t dpad_right;
-  uint8_t dpad_left;
-  uint8_t dpad_up;
-  uint8_t dpad_down;
-  uint8_t tri;
-  uint8_t o;
-  uint8_t x;
-  uint8_t sqr;
-  uint8_t l1;
-  uint8_t r1;
-  uint8_t l2;
-  uint8_t r2;
+  union pressure_u pressure;
   uint8_t digitalButtons;
   uint8_t checksum;
 };
+
+#define EEPROM_MIN_VALUE 0
+#define EEPROM_MAX_VALUE 20
+
+pressure_u maxAtIdle;
+pressure_u maxValues;
+pressure_u minValues;
 
 // byte 13: front (near user) and back connector: L1 (upper)
 // byte 14: front (near user) and back connector: R1 (upper)
@@ -62,12 +87,17 @@ struct inputData input;
 uint32_t commMask;
 volatile uint32_t* commReceive;
 volatile uint32_t* commSend;
+#ifdef USE_LED
 gpio_dev* ledPort;
 uint32_t ledPin;
+#endif
 
 #define CALIBRATE_COUNT 10
 
-#define ANALOG_MINIMUM 1
+#define DEBOUNCE_MILLIS      40
+
+uint32_t vibrateReleaseTime = 0;
+uint8_t prevButtons = 0xFF; // active low
 
 uint32_t sumLX = 0;
 uint32_t sumLY = 0;
@@ -85,30 +115,13 @@ int32_t scaleLY = 128;
 int32_t scaleRX = 128;
 int32_t scaleRY = 128;
 
-uint8_t maxR1 = 1;
-uint8_t maxL1 = 1;
-uint8_t maxR2 = 1;
-uint8_t maxL2 = 1;
-
-uint8_t maxUp = 0;
-uint8_t maxLeft = 0;
-uint8_t maxRight = 0;
-uint8_t maxDown = 0;
-
-uint8_t minUp = 0;
-uint8_t minLeft = 0;
-uint8_t minRight = 0;
-uint8_t minDown = 0;
-
 uint8_t rumbleBig = 0;
 uint8_t rumbleLittle = 0;
+bool vibrate = true;
+uint32_t changedSettingTime = 0;
+const uint32_t changedSettingWriteDelayMillis = 2000;
 
 USBXBox360 XBox360;
-
-inline int16_t range8u16s(uint16_t x) {
-  // TODO: fix
-  return (((int32_t)(uint32_t)x - 128) * 32767 + 64) / 128;
-}
 
 void initDWT() {
   CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
@@ -125,10 +138,23 @@ void rumble(uint8_t left, uint8_t right) {
 }
 
 void setup() {
+  EEPROM8_init();
+  for (int i=0; i<PRESSURE_SENSITIVE_COUNT; i++) {
+    minValues.values[i] = EEPROM8_getValue(EEPROM_MIN_VALUE+i);
+    maxValues.values[i] = EEPROM8_getValue(EEPROM_MAX_VALUE+i);
+    if (minValues.values[i] == 0)
+      minValues.values[i] = 1;
+    if (maxValues.values[i] < minValues.values[i])
+      maxValues.values[i] = minValues.values[i];
+  }
   iwdg_init(IWDG_PRE_256, watchdogSeconds*156);
   initDWT();
+#ifdef USE_LED  
   pinMode(LED,OUTPUT);
   digitalWrite(LED,1);
+  ledPort = digitalPinToPort(LED);
+  ledPin = PIN_MAP[LED].gpio_bit;
+#endif
   pinMode(COMM,INPUT_PULLDOWN);
 #ifdef BENCHMARK
   pinMode(BENCHMARK_PIN,OUTPUT);
@@ -136,12 +162,9 @@ void setup() {
   commReceive = &(digitalPinToPort(COMM)->regs->IDR);
   commSend = &(digitalPinToPort(COMM)->regs->ODR); // communicate via pullups
   commMask = digitalPinToBitMask(COMM);
-  ledPort = digitalPinToPort(LED);
-  ledPin = PIN_MAP[LED].gpio_bit;
 #ifdef DEBUG
   Serial.begin();
   while (!Serial) ;
-  Serial.println("Hello");
 #else  
   USBComposite.setProductString("LogitechPS2ToXBox360");
   XBox360.begin();
@@ -203,7 +226,7 @@ int32_t scaleAxis(uint8_t datum, int32_t center, int32_t scale)
   if (x < -32768)
     return -32768;
   else if (x > 32767)
-    return 32767;
+    return 32767;  
   else
     return x;
 }
@@ -211,13 +234,23 @@ int32_t scaleAxis(uint8_t datum, int32_t center, int32_t scale)
 uint8_t getMinFromMax(uint8_t v)
 {
   if (v == 0)
-    return ANALOG_MINIMUM;
+    return 3;
   if (v < 40)
     return v + 5;
   return v + 10;
 }
 
 void writeRumble() {
+  uint8_t big;
+  uint8_t little;
+  if (vibrate) {
+    big = rumbleBig;
+    little = rumbleLittle;
+  }
+  else {
+    big = 0;
+    little = 0;
+  }
   *commSend &= ~commMask;
   DWT->CYCCNT = 0;
   while (DWT->CYCCNT < rumbleWaitCycles);
@@ -225,7 +258,7 @@ void writeRumble() {
   *commSend |= commMask;
   while (DWT->CYCCNT < rumbleBitCycles / 2);
   DWT->CYCCNT = 0;
-  if (rumbleLittle >= MIN_LITTLE_RUMBLE) 
+  if (little >= MIN_LITTLE_RUMBLE) 
     *commSend |= commMask;
   else
     *commSend &= ~commMask;
@@ -234,7 +267,7 @@ void writeRumble() {
   for (uint8_t mask = 0x80 ; mask ; mask >>= 1) {
     while (DWT->CYCCNT < rumbleBitCycles);
     DWT->CYCCNT = 0;
-    if (rumbleBig & mask)
+    if (big & mask)
       *commSend |= commMask;
     else
       *commSend &= ~commMask;
@@ -243,29 +276,40 @@ void writeRumble() {
   *commSend &= ~commMask;
 }
 
+uint8_t scaleSlider(uint8_t p,uint8_t minValue,uint8_t maxValue) {
+  if (p < minValue)
+    return 0;
+  return (p - (minValue-1)) * (unsigned int)255 / (maxValue - (minValue-1));
+}
+
 void writeData() {
 #ifdef DEBUG
+  char s[50];
   for (int i=0;i<sizeof(input);i++) {
     uint8_t x = ((uint8_t*)&input)[i];
-    char s[4];
     sprintf(s, "%02x ", x);
     Serial.write(s); 
   }
   Serial.write("\n");
 #endif
   if (dataCount < CALIBRATE_COUNT) {
+    if (dataCount == 0 && (input.digitalButtons & 0x10)) {
+      for (int i=0; i < PRESSURE_SENSITIVE_COUNT ; i++) {
+        minValues.values[i] = 1;
+        maxValues.values[i] = 1;
+      }
+      changedSettingTime = millis();
+    }
     sumLX += input.lx;
     sumRX += input.rx;
     sumLY += input.ly;
     sumRY += input.ry;
-    if (input.dpad_up > maxUp)
-      maxUp = input.dpad_up;
-    if (input.dpad_down > maxDown)
-      maxDown = input.dpad_down;
-    if (input.dpad_left > maxLeft)
-      maxLeft = input.dpad_left;
-    if (input.dpad_right > maxRight)
-      maxRight = input.dpad_right;
+    for (int i=0; i<PRESSURE_SENSITIVE_COUNT; i++) {
+      if (input.pressure.values[i] > maxAtIdle.values[i]) {
+        maxAtIdle.values[i] = input.pressure.values[i];
+        changedSettingTime = millis();
+      }
+    }
     dataCount++;
     if (dataCount == CALIBRATE_COUNT) {
       centerLX = (sumLX + CALIBRATE_COUNT/2) / CALIBRATE_COUNT;
@@ -276,47 +320,45 @@ void writeData() {
       scaleRX = getScale(centerRX);
       scaleLY = getScale(centerLY);
       scaleRY = getScale(centerRY);
-      minUp = getMinFromMax(maxUp);
-      minDown = getMinFromMax(maxDown);
-      minLeft = getMinFromMax(maxLeft);
-      minRight = getMinFromMax(maxRight);
+      for (int i=0; i<PRESSURE_SENSITIVE_COUNT; i++) {
+        uint8_t v = getMinFromMax(maxAtIdle.values[i]);
+        if (v > minValues.values[i]) {
+          minValues.values[i] = v;
+          changedSettingTime = millis();
+        }
+        if (v > maxValues.values[i]) {
+          maxValues.values[i] = v;          
+          changedSettingTime = millis();
+        }
+#ifdef DEBUG
+        sprintf(s,"%d: %d %d %d", i, maxAtIdle.values[i], minValues.values[i], maxValues.values[i]);
+        Serial.println(s);
+#endif        
+                        
+      }
     }
     return;
   }
-  if (input.r1 > maxR1)
-    maxR1 = input.r1;
-  if (input.l1 > maxL1)
-    maxL1 = input.l1;
-  if (input.r2 > maxR2)
-    maxR2 = input.r2;
-  if (input.l2 > maxL2)
-    maxL2 = input.l2;
 #ifdef DEBUG
-  char s[50];
   sprintf(s,"%d,%d %d,%d", scaleAxis(input.lx, centerLX, scaleLX),scaleAxis(input.ly, centerLY, scaleLY),scaleAxis(input.rx, centerRX, scaleRX),scaleAxis(input.ry, centerRY, scaleRY));
   Serial.println(s);
 #endif    
   uint16_t buttons = 0;
-  if (input.dpad_left >= minLeft)
-    buttons |= 1 << (XBOX_DLEFT-1);
-  if (input.dpad_right >= minRight)
-    buttons |= 1 << (XBOX_DRIGHT-1);
-  if (input.dpad_up >= minUp)
-    buttons |= 1 << (XBOX_DUP-1);
-  if (input.dpad_down >= minDown)
-    buttons |= 1 << (XBOX_DDOWN-1);
-  if (input.tri >= ANALOG_MINIMUM)
-    buttons |= 1 << (XBOX_Y-1);
-  if (input.sqr >= ANALOG_MINIMUM)
-    buttons |= 1 << (XBOX_X-1);
-  if (input.o >= ANALOG_MINIMUM)
-    buttons |= 1 << (XBOX_B-1);
-  if (input.x >= ANALOG_MINIMUM)
-    buttons |= 1 << (XBOX_A-1);
-  if (input.l1 >= ANALOG_MINIMUM)
-    buttons |= 1 << (XBOX_LSHOULDER-1);
-  if (input.r1 >= ANALOG_MINIMUM)
-    buttons |= 1 << (XBOX_RSHOULDER-1);
+  for (int i=0; i<PRESSURE_SENSITIVE_COUNT; i++) {
+    uint8_t p = input.pressure.values[i];
+    if (p > maxValues.values[i]) {
+#ifdef DEBUG
+      sprintf(s, "update %d->%u", i,p);
+      Serial.println(s);
+#endif      
+      maxValues.values[i] = p;
+      changedSettingTime = millis();
+    }
+    unsigned xbox = pressureSensitiveToXBox[i];
+    if (xbox && p >= minValues.values[i]) {
+      buttons |= 1 << (xbox-1);
+    }
+  }
   if (0 == (input.digitalButtons & (1<<3)))
     buttons |= 1 << (XBOX_START-1);
   if (0 == (input.digitalButtons & 1)) // select
@@ -327,19 +369,44 @@ void writeData() {
     buttons |= 1 << (XBOX_L3-1);
   if (0 == (input.digitalButtons & (1<<2)))
     buttons |= 1 << (XBOX_R3-1);
+  if ((input.digitalButtons ^ prevButtons) & 0x20) {
+    // vibrate changed
+    if (input.digitalButtons & 0x20) {
+      vibrateReleaseTime = millis();
+    }
+    else {
+      if (millis() >= vibrateReleaseTime + DEBOUNCE_MILLIS) {
+        vibrate = !vibrate;
+      }        
+    }
+  }
+  prevButtons = input.digitalButtons;
+
 #ifdef DEBUG
   sprintf(s,"buttons %04x", buttons);    
   Serial.println(s);
-  return;
-#endif
+#else
   XBox360.buttons(buttons);
   XBox360.X(scaleAxis(input.lx, centerLX, scaleLX));
   XBox360.Y(scaleAxis(input.ly, centerLY, scaleLY));
   XBox360.XRight(scaleAxis(input.rx, centerRX, scaleRX));
   XBox360.YRight(scaleAxis(input.ry, centerRY, scaleRY));
-  XBox360.sliderLeft( (input.l2 * 255 + maxL2/2) / maxL1 );
-  XBox360.sliderRight( (input.r2 * 255 + maxR2/2) / maxR1 );
+  XBox360.sliderLeft(scaleSlider(input.pressure.buttons.l2,minValues.buttons.l2,maxValues.buttons.l2));
+  XBox360.sliderRight(scaleSlider(input.pressure.buttons.r2,minValues.buttons.r2,maxValues.buttons.r2));
   XBox360.send();
+#endif
+
+  if (changedSettingTime > 0 && millis() >= changedSettingTime + changedSettingWriteDelayMillis) {
+    for (int i=0; i<PRESSURE_SENSITIVE_COUNT; i++) {
+#ifdef DEBUG
+      sprintf(s,"store %d", i);    
+      Serial.println(s);
+#endif      
+      EEPROM8_storeValue(EEPROM_MIN_VALUE+i, minValues.values[i]);
+      EEPROM8_storeValue(EEPROM_MAX_VALUE+i, maxValues.values[i]);
+    }
+    changedSettingTime = 0;
+  }
 }
 
 void loop() {
@@ -353,7 +420,9 @@ void loop() {
       }
       bool success;
       noInterrupts();
+#ifdef USE_LED      
       gpio_write_bit(ledPort, ledPin, 0);
+#endif
       success = readData(); 
       if (success) {         
         writeRumble();
@@ -366,6 +435,8 @@ void loop() {
       else {
         interrupts();
       }
+#ifdef USE_LED      
       gpio_write_bit(ledPort, ledPin, 1);
+#endif      
   }
 }
