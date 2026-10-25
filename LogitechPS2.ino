@@ -14,6 +14,7 @@ enum {
   MANYSLIDER = 1,
 } mode;
 
+#undef MANYSLIDER_HAT
 #define MANYSLIDER_VENDOR_ID 0xf06d
 #define MANYSLIDER_PRODUCT_ID 0xa281
 
@@ -44,66 +45,71 @@ int benchmarkState = 0;
 
 // for many-slider version of pressure sensitive support
 const uint8_t reportDescription[] = {
-  0x05, 0x01,           /*  Usage Page (Generic Desktop) */ \
-  0x09, 0x04,           /*  Usage (Joystick) */ \
-  0xA1, 0x01,           /*  Collection (Application) */ \
-  0x85, HID_JOYSTICK_REPORT_ID,  /*    REPORT_ID */ \
-  0x15, 0x00,           /*   Logical Minimum (0) */ \
-  0x25, 0x01,           /*    Logical Maximum (1) */ \
-  0x75, 0x01,           /*    Report Size (1) */ \
-  0x95, 0x09,           /*    Report Count (9) */ \
-  0x05, 0x09,           /*    Usage Page (Button) */ \
-  0x19, 0x01,           /*    Usage Minimum (Button #1) */ \
-  0x29, 0x09,           /*    Usage Maximum (Button #9) */ \
-  0x81, 0x02,           /*    Input (variable,absolute) */ \
+  0x05, 0x01,           /*  Usage Page (Generic Desktop) */ 
+  0x09, 0x04,           /*  Usage (Joystick) */ 
+  0xA1, 0x01,           /*  Collection (Application) */ 
+  0x85, HID_JOYSTICK_REPORT_ID,  /*    REPORT_ID */ 
+  0x15, 0x00,           /*   Logical Minimum (0) */ 
+  0x25, 0x01,           /*    Logical Maximum (1) */ 
+  0x75, 0x01,           /*    Report Size (1) */ 
+  0x95, 0x05,           /*    Report Count (5) */ 
+  0x05, 0x09,           /*    Usage Page (Button) */ 
+  0x19, 0x01,           /*    Usage Minimum (Button #1) */ 
+  0x29, 0x05,           /*    Usage Maximum (Button #5) */ 
+  0x81, 0x02,           /*    Input (variable,absolute) */ 
 
   0x75, 0x01,           /*    Report Size (1) */
-  0x95, 0x03,           /*    Report Count (3) - 3 bits of padding */
+#ifdef MANYSLIDER_HAT  
+  0x95, 0x07,           /*    Report Count padding bits */
   0x81, 0x01,           /*    Input (constant,array,variable) -> 0x01 means Constant (Padding) */
+  0x15, 0x00,           /*    Logical Minimum (0) */ 
+  0x25, 0x07,           /*    Logical Maximum (7) */ 
+  0x35, 0x00,           /*    Physical Minimum (0) */ 
+  0x46, 0x3B, 0x01,       /*    Physical Maximum (315) */ 
+  0x75, 0x04,           /*    Report Size (4) */ 
+  0x95, 0x01,           /*    Report Count (1) */ 
+  0x65, 0x14,           /*    Unit (20) */ 
+  0x05, 0x01,                     /*    Usage Page (Generic Desktop) */ 
+  0x09, 0x39,           /*    Usage (Hat switch) */
+  0x81, 0x42,           /*    Input (variable,absolute,null_state) */ 
+#else
+  0x95, 0x03,           /*    Report Count padding bits */
+  0x81, 0x01,           /*    Input (constant,array,variable) -> 0x01 means Constant (Padding) */
+#endif
   
-  0x15, 0x00,           /*    Logical Minimum (0) */ \
-  0x25, 0x07,           /*    Logical Maximum (7) */ \
-  0x35, 0x00,           /*    Physical Minimum (0) */ \
-  0x46, 0x3B, 0x01,       /*    Physical Maximum (315) */ \
-  0x75, 0x04,           /*    Report Size (4) */ \
-  0x95, 0x01,           /*    Report Count (1) */ \
-  0x65, 0x14,           /*    Unit (20) */ \
-    0x05, 0x01,                     /*    Usage Page (Generic Desktop) */ \
-  0x09, 0x39,           /*    Usage (Hat switch) */ \
-  0x81, 0x42,           /*    Input (variable,absolute,null_state) */ \
-    0x05, 0x01,                     /* Usage Page (Generic Desktop) */ \
-  0x09, 0x01,           /* Usage (Pointer) */ \
-    0xA1, 0x00,                     /* Collection () */ \
-  0x15, 0x00,           /*    Logical Minimum (0) */ \
-  0x26, 0xFF, 0x03,       /*    Logical Maximum (1023) */ \
-  0x75, 0x0A,           /*    Report Size (10) */ \
-  0x95, 0x04,           /*    Report Count (4) */ \
-  0x09, 0x30,           /*    Usage (X) */ \
-  0x09, 0x31,           /*    Usage (Y) */ \
-  0x09, 0x33,           /*    Usage (Rx) */ \
-  0x09, 0x34,           /*    Usage (Ry) */ \
-  0x81, 0x02,           /*    Input (variable,absolute) */ \
-    0xC0,                           /*  End Collection */ \
-  0x15, 0x00,           /*  Logical Minimum (0) */ \
-  0x26, 0xFF, 0x00,       /*  Logical Maximum (255) */ \
-  0x75, 0x08,           /*  Report Size (8) */ \
-  0x95, 0x0C,           /*  Report Count(12) */ \
-  0x09, 0x36,           /*  Usage (Slider) */ \
-  0x09, 0x36,           /*  Usage (Slider) */ \
-  0x09, 0x36,           /*  Usage (Slider) */ \
-  0x09, 0x36,           /*  Usage (Slider) */ \
+    0x05, 0x01,                     /* Usage Page (Generic Desktop) */ 
+  0x09, 0x01,           /* Usage (Pointer) */ 
+    0xA1, 0x00,                     /* Collection () */ 
+  0x15, 0x00,           /*    Logical Minimum (0) */ 
+  0x26, 0xFF, 0x03,       /*    Logical Maximum (1023) */ 
+  0x75, 0x0A,           /*    Report Size (10) */ 
+  0x95, 0x04,           /*    Report Count (4) */ 
+  0x09, 0x30,           /*    Usage (X) */ 
+  0x09, 0x31,           /*    Usage (Y) */ 
+  0x09, 0x33,           /*    Usage (Rx) */ 
+  0x09, 0x34,           /*    Usage (Ry) */ 
+  0x81, 0x02,           /*    Input (variable,absolute) */ 
+    0xC0,                           /*  End Collection */ 
+  0x15, 0x00,           /*  Logical Minimum (0) */ 
+  0x26, 0xFF, 0x00,       /*  Logical Maximum (255) */ 
+  0x75, 0x08,           /*  Report Size (8) */ 
+  0x95, 0x0C,           /*  Report Count(12) */ 
+  0x09, 0x36,           /*  Usage (Slider) */ 
+  0x09, 0x36,           /*  Usage (Slider) */ 
+  0x09, 0x36,           /*  Usage (Slider) */ 
+  0x09, 0x36,           /*  Usage (Slider) */ 
 
-  0x09, 0x36,           /*  Usage (Slider) */ \
-  0x09, 0x36,           /*  Usage (Slider) */ \
-  0x09, 0x36,           /*  Usage (Slider) */ \
-  0x09, 0x36,           /*  Usage (Slider) */ \
+  0x09, 0x36,           /*  Usage (Slider) */ 
+  0x09, 0x36,           /*  Usage (Slider) */ 
+  0x09, 0x36,           /*  Usage (Slider) */ 
+  0x09, 0x36,           /*  Usage (Slider) */ 
 
-  0x09, 0x36,           /*  Usage (Slider) */ \
-  0x09, 0x36,           /*  Usage (Slider) */ \
-  0x09, 0x36,           /*  Usage (Slider) */ \
-  0x09, 0x36,           /*  Usage (Slider) */ \
+  0x09, 0x36,           /*  Usage (Slider) */ 
+  0x09, 0x36,           /*  Usage (Slider) */ 
+  0x09, 0x36,           /*  Usage (Slider) */ 
+  0x09, 0x36,           /*  Usage (Slider) */ 
 
-  0x81, 0x02,           /*  Input (variable,absolute) */ \
+  0x81, 0x02,           /*  Input (variable,absolute) */ 
     0xC0
 };
 
@@ -111,8 +117,13 @@ static const HIDReportDescriptor desc_ManySlider = { reportDescription, sizeof(r
 
 typedef struct {
     uint8_t reportID;
-    unsigned buttons:12;
+    unsigned buttons:5;
+#ifdef MANYSLIDER_HAT
+    unsigned padding:7;
     unsigned hat:4;
+#else
+    unsigned padding:3;
+#endif    
     unsigned x:10;
     unsigned y:10;
     unsigned rx:10;
@@ -137,7 +148,7 @@ public:
   HIDManySlider(USBHID& HID, uint8_t reportID=HID_JOYSTICK_REPORT_ID) 
             : HIDReporter(HID, &desc_ManySlider, (uint8_t*)&joyReport, sizeof(joyReport), reportID) {
         joyReport.buttons = 0;
-        joyReport.hat = 15;
+//        joyReport.hat = 15;
         joyReport.x = 512;
         joyReport.y = 512;
         joyReport.rx = 512;
@@ -160,7 +171,7 @@ const uint8_t pressureSensitiveToXBox[PRESSURE_SENSITIVE_COUNT] =
 const uint8_t pressureSensitiveToManySlider[PRESSURE_SENSITIVE_COUNT] =
 {
   0, 0, 0, 0,
-  3+1, 1+1, 0+1, 2+1,
+  0, 0, 0, 0, 
   0, 0, 0, 0
 };
 
@@ -217,10 +228,8 @@ struct inputData input;
 uint32_t commMask;
 volatile uint32_t* commReceive;
 volatile uint32_t* commSend;
-#ifdef USE_LED
 gpio_dev* ledPort;
 uint32_t ledPin;
-#endif
 
 #define CALIBRATE_COUNT 10
 
@@ -285,12 +294,10 @@ void setup() {
   }
   iwdg_init(IWDG_PRE_256, watchdogSeconds*156);
   initDWT();
-#ifdef USE_LED  
   pinMode(LED,OUTPUT);
   digitalWrite(LED,1);
   ledPort = digitalPinToPort(LED);
   ledPin = PIN_MAP[LED].gpio_bit;
-#endif
   pinMode(COMM,INPUT_PULLDOWN);
 #ifdef BENCHMARK
   pinMode(BENCHMARK_PIN,OUTPUT);
@@ -445,6 +452,14 @@ void writeData() {
   if (dataCount < CALIBRATE_COUNT) {
 #ifndef DEBUG    
     if (dataCount == 0) {
+        if (0 == (input.digitalButtons & PS2_START)) {
+          for (int i=0; i < PRESSURE_SENSITIVE_COUNT ; i++) {
+            minValues.values[i] = 1;
+            maxValues.values[i] = 1;
+          }
+          changedSettingTime = millis();
+        }
+
         if (0 == (input.digitalButtons & LOGITECH_MODE)) {
             if (mode == XBOX)
               mode = MANYSLIDER;
@@ -468,15 +483,6 @@ void writeData() {
         }
         
         while (!USBComposite);
-        
-        if (0 == (input.digitalButtons & PS2_START)) {
-          for (int i=0; i < PRESSURE_SENSITIVE_COUNT ; i++) {
-            minValues.values[i] = 1;
-            maxValues.values[i] = 1;
-          }
-          changedSettingTime = millis();
-        }
-
     }
 #endif        
     sumLX += input.lx;
@@ -544,15 +550,15 @@ void writeData() {
     }
   }
   if (0 == (input.digitalButtons & PS2_START))
-    buttons |= 1 << (mode == XBOX ? XBOX_START-1 : 4);
+    buttons |= 1 << (mode == XBOX ? XBOX_START-1 : 0);
   if (0 == (input.digitalButtons & PS2_SELECT)) 
-    buttons |= 1 << (mode == XBOX  ? XBOX_BACK-1 : 5);
+    buttons |= 1 << (mode == XBOX  ? XBOX_BACK-1 : 1);
   if (0 == (input.digitalButtons & LOGITECH_MODE))
-    buttons |= 1 << (mode == XBOX  ? XBOX_GUIDE-1 : 6);
+    buttons |= 1 << (mode == XBOX  ? XBOX_GUIDE-1 : 2);
   if (0 == (input.digitalButtons & PS2_L3))
-    buttons |= 1 << (mode == XBOX  ? XBOX_L3-1 : 7);
+    buttons |= 1 << (mode == XBOX  ? XBOX_L3-1 : 3);
   if (0 == (input.digitalButtons & PS2_R3))
-    buttons |= 1 << (mode == XBOX  ? XBOX_R3-1 : 8);
+    buttons |= 1 << (mode == XBOX  ? XBOX_R3-1 : 4);
   if ((input.digitalButtons ^ prevButtons) & LOGITECH_VIBRATE) {
     // vibrate changed
     if (input.digitalButtons & LOGITECH_VIBRATE) {
@@ -583,6 +589,7 @@ void writeData() {
     XBox360.send();
   }
   else if (mode == MANYSLIDER) {
+#ifdef MANYSLIDER_HAT
     bool left = input.pressure.buttons.dpad_left >= minValues.buttons.dpad_left;
     bool right = !left && input.pressure.buttons.dpad_right >= minValues.buttons.dpad_right;
     bool up = input.pressure.buttons.dpad_up >= minValues.buttons.dpad_up;
@@ -611,6 +618,7 @@ void writeData() {
       else
         ManySlider.joyReport.hat = 8;
     }
+#endif
     ManySlider.joyReport.buttons = buttons;
     ManySlider.joyReport.x = scaleAxis10Bit(input.lx, centerLX, scaleLX, false);
     ManySlider.joyReport.y = scaleAxis10Bit(input.ly, centerLY, scaleLY, true);
