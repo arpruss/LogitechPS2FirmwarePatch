@@ -11,7 +11,7 @@
 
 enum {
   XBOX = 0,
-  MANYSLIDER = 1
+  MANYSLIDER = 1,
 } mode;
 
 #define MANYSLIDER_VENDOR_ID 0xf06d
@@ -250,6 +250,8 @@ uint8_t rumbleLittle = 0;
 bool vibrate = true;
 uint32_t changedSettingTime = 0;
 const uint32_t changedSettingWriteDelayMillis = 2000;
+uint32_t vibrateTimeout = 10000;
+uint32_t lastVibrateTime = 0;
 
 USBXBox360 XBox360;
 USBHID HID;
@@ -267,6 +269,7 @@ void rumble(uint8_t left, uint8_t right) {
     rumbleBig = BIG_RUMBLE_OUT_MIN + ((255-BIG_RUMBLE_OUT_MIN) * left + 128)/ 255;
   rumbleBig = left;
   rumbleLittle = right;
+  lastVibrateTime = millis();
 }
 
 void setup() {
@@ -382,6 +385,12 @@ uint8_t getMinFromMax(uint8_t v)
 void writeRumble() {
   uint8_t big;
   uint8_t little;
+
+  if (millis()-lastVibrateTime > vibrateTimeout) {
+    rumbleBig = 0;
+    rumbleLittle = 0;
+  }
+  
   if (vibrate) {
     big = rumbleBig;
     little = rumbleLittle;
@@ -506,6 +515,10 @@ void writeData() {
 #endif        
                         
       }
+      if (mode == XBOX && vibrate) {
+        rumble(75,75);
+        lastVibrateTime = millis()-vibrateTimeout+120;
+      }
     }
     return;
   }
@@ -543,10 +556,12 @@ void writeData() {
   if ((input.digitalButtons ^ prevButtons) & LOGITECH_VIBRATE) {
     // vibrate changed
     if (input.digitalButtons & LOGITECH_VIBRATE) {
+      // released!
       vibrateReleaseTime = millis();
     }
     else {
-      if (millis() >= vibrateReleaseTime + DEBOUNCE_MILLIS) {
+      // pressed
+      if (millis() - vibrateReleaseTime >= DEBOUNCE_MILLIS) {
         vibrate = !vibrate;
       }        
     }
